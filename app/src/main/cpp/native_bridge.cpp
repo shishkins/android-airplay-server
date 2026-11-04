@@ -6,6 +6,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <memory>
+
+#include "av_sync.h"
 #include <android/log.h>
 
 extern "C" {
@@ -417,4 +419,12 @@ Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeServerAudioDebug(
     jlong cap = env->GetDirectBufferCapacity(buf);
     if (!addr || cap <= 0) return JNI_FALSE;
     return audio_engine_get_debug(ctx->cb_ctx.audio_engine, addr, (size_t)cap) ? JNI_TRUE : JNI_FALSE;
+}
+
+/* A/V sync: mono-clock offset at which a sender pts becomes audible, or Long.MIN_VALUE */
+extern "C"
+JNIEXPORT jlong JNICALL
+Java_io_github_jqssun_airplay_bridge_NativeBridge_nativeGetAvSyncOffsetNs(
+        JNIEnv *env, jobject thiz, jlong maxAgeNs) {
+    return (jlong)av_sync::current((int64_t)maxAgeNs);
 }

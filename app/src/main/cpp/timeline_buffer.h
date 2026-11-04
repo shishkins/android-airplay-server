@@ -2,6 +2,7 @@
 #define TIMELINE_BUFFER_H
 
 #include <algorithm>
+#include <climits>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -26,6 +27,9 @@ public:
 
     // producer: snapshot the end of audio that belongs to the old timeline
     size_t writePosition() const { return mWrite.load(std::memory_order_acquire); }
+
+    // consumer: absolute position of the next sample to be read
+    size_t readPosition() const { return mRead.load(std::memory_order_relaxed); }
 
     // consumer: discard only old audio; preserve samples written after the snapshot
     void discardThrough(size_t position) {
@@ -239,6 +243,7 @@ public:
         // pts 0 = sender clock not NTP synced yet
         if (ptsNs == 0) {
             mRing.write(pcm, samples);
+            mPtsBaseNs.store(NO_PTS, std::memory_order_release);
             return;
         }
         const int64_t durNs = samples * NS_PER_SEC / mChannels / mSampleRate;
@@ -272,10 +277,15 @@ public:
         }
         mRing.write(pcm, samples);
         mExpectedPtsNs = ptsNs + durNs;
+        // ring is one continuous timeline (gaps become silence): pts of any ring position
+        // follows from the write head; the consumer derives the pts of what it plays
+        mPtsBaseNs.store(mExpectedPtsNs - (int64_t)((double)mRing.writePosition() * nsPerSample()),
+                         std::memory_order_release);
     }
 
-    // consumer: pop frames*channels samples into out, silence-padded on underrun
-    void read(int16_t *out, int32_t frames) {
+    // consumer: pop frames*channels samples into out, silence-padded on underrun.
+    // returns sender pts of the first sample written to out, NO_PTS for silence/priming
+    int64_t read(int16_t *out, int32_t frames) {
         if (mFlushRequested.exchange(false, std::memory_order_acquire)) {
             mRing.discardThrough(mFlushThrough.load(std::memory_order_acquire));
             mPriming = true;
@@ -322,13 +332,17 @@ public:
             // never true, so we'd otherwise underrun on every empty read between sounds
             if (buffered == 0 || (buffered < tuned && !starved)) {
                 memset(out, 0, need * sizeof(int16_t));
-                return;
+                return NO_PTS;
             }
             mPriming = false;
             mPrimeSilenceFrames = 0;
         }
 
+        const size_t readAt = mRing.readPosition();
         const size_t got = mRing.read(out, need);
+        const int64_t base = mPtsBaseNs.load(std::memory_order_acquire);
+        const int64_t pts = (got == 0 || base == NO_PTS)
+                ? NO_PTS : base + (int64_t)((double)readAt * nsPerSample());
         if (got < need) {
             memset(out + got, 0, (need - got) * sizeof(int16_t));
             mPriming = true;
@@ -336,6 +350,7 @@ public:
             mUnderran.store(true, std::memory_order_relaxed);  // producer re-anchors
             mMetrics.countUnderrun();
         }
+        return pts;
     }
 
     // call after discontinuity or clock shift/resync; producer-side, must not run
@@ -346,6 +361,7 @@ public:
     // consumer move its own ring cursor, without stopping/reopening the device.
     void flush() {
         mExpectedPtsNs = 0;
+        mPtsBaseNs.store(NO_PTS, std::memory_order_release);
         mUnderran.store(false, std::memory_order_relaxed);
         mTracker.reset();
         mFlushThrough.store(mRing.writePosition(), std::memory_order_release);
@@ -377,7 +393,11 @@ public:
         return d;
     }
 
+    static constexpr int64_t NO_PTS = INT64_MIN;
+
 private:
+
+    double nsPerSample() const { return (double)NS_PER_SEC / ((double)mSampleRate * mChannels); }
 
     // latency ceiling for cushion: 2x, but never below TRIM_FLOOR_MS so tiny cushion
     // still gets slack before a trim (trim costs a glitch)
@@ -417,6 +437,7 @@ private:
     std::atomic<bool> mFlushRequested{false};
 
     int64_t mExpectedPtsNs = 0;          // presentation time expected at write head
+    std::atomic<int64_t> mPtsBaseNs{NO_PTS};  // producer->consumer: pts of ring position 0
 };
 
 #endif  // TIMELINE_BUFFER_H

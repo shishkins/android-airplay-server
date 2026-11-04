@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 
+#include "av_sync.h"
 #include "log_sink.h"
 #include "timeline_buffer.h"
 
@@ -28,10 +29,11 @@ public:
 
     void setClientGain(float g) { mClientGain.store(g, std::memory_order_relaxed); }
 
-    oboe::DataCallbackResult onAudioReady(oboe::AudioStream *, void *audioData,
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream *stream, void *audioData,
                                           int32_t numFrames) override {
         auto *out = static_cast<int16_t *>(audioData);
-        mTimeline->read(out, numFrames);
+        const int64_t pts = mTimeline->read(out, numFrames);
+        if (pts != TimelineBuffer::NO_PTS) av_sync::publish(pts, outputLatencyNs(stream));
 
         const float gain = mClientGain.load(std::memory_order_relaxed);
         if (gain < 1.0f) {
@@ -44,6 +46,24 @@ public:
     void onErrorAfterClose(oboe::AudioStream *, oboe::Result error) override;  // needs AudioOutput
 
 private:
+    // time until the first frame written in this callback is heard. AAudio measures it from
+    // the hardware timestamp; OpenSL ES can't, so assume the whole device buffer is ahead.
+    // Measured every few callbacks: the value moves slowly and getTimestamp isn't free
+    int64_t outputLatencyNs(oboe::AudioStream *stream) {
+        if (mLatencyCallbacks-- <= 0) {
+            mLatencyCallbacks = LATENCY_EVERY_CALLBACKS;
+            auto measured = stream->calculateLatencyMillis();
+            mLatencyNs = measured
+                    ? (int64_t)(measured.value() * 1'000'000.0)
+                    : (int64_t)stream->getBufferSizeInFrames() * NS_PER_SEC / stream->getSampleRate();
+        }
+        return mLatencyNs;
+    }
+
+    static constexpr int LATENCY_EVERY_CALLBACKS = 8;
+    int mLatencyCallbacks = 0;
+    int64_t mLatencyNs = 0;
+
     friend class AudioOutput;
 
     std::shared_ptr<TimelineBuffer> mTimeline;
@@ -98,6 +118,7 @@ public:
             mStream->close();
             mStream.reset();
         }
+        av_sync::reset();
     }
 
     void setClientGain(float g) { mCallbacks->setClientGain(g); }

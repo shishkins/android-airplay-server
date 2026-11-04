@@ -1,0 +1,38 @@
+name: Z7 build
+
+# Сборка приёмника для XGIMI Projector OS (ветка z7): неподписанный APK как артефакт.
+on:
+  push:
+    branches: [ z7 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "21"
+          cache: gradle
+
+      # ключ подписи в форк не кладём: APK собирается неподписанным,
+      # подписывается локально тем же ключом, что и остальные модули XGIMI Projector OS
+      - name: Build (release, unsigned)
+        run: |
+          export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
+          chmod +x ./gradlew
+          ./gradlew :app:assembleRelease --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: airplay-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

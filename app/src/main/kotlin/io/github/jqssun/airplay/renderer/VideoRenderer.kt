@@ -6,6 +6,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.util.Log
 import android.view.Surface
+import io.github.jqssun.airplay.bridge.NativeBridge
 import io.github.jqssun.airplay.renderer.DecoderSelector.Companion.videoCaps
 
 class VideoRenderer(ctx: Context) {
@@ -46,6 +47,8 @@ class VideoRenderer(ctx: Context) {
     // anchors that map decoder PTS (us) to System.nanoTime() for scheduled rendering
     private var _ptsBaseUs = Long.MIN_VALUE
     private var _wallBaseNs = 0L
+    // smoothed audio-clock offset used for release times (Long.MIN_VALUE = none yet)
+    private var _avOffsetNs = Long.MIN_VALUE
 
     fun setResolution(w: Int, h: Int) = synchronized(lock) {
         if (w == videoWidth && h == videoHeight) return@synchronized
@@ -256,6 +259,7 @@ class VideoRenderer(ctx: Context) {
         _lastOutputFrameNs = 0L
         _ptsBaseUs = Long.MIN_VALUE
         _wallBaseNs = 0L
+        _avOffsetNs = Long.MIN_VALUE
         codec?.let {
             try {
                 it.stop()
@@ -275,15 +279,40 @@ class VideoRenderer(ctx: Context) {
             if (scheduledOutputBufferRelease) {
                 // schedule frame at VSYNC matching its NTP presentation time
                 val ptsUs = info.presentationTimeUs
-                if (_ptsBaseUs == Long.MIN_VALUE) {
-                    _ptsBaseUs = ptsUs
-                    _wallBaseNs = System.nanoTime()
+                val now = System.nanoTime()
+                val releaseNs = _syncedReleaseNs(ptsUs) ?: run {
+                    // no audio clock yet: pace by the first frame's arrival
+                    if (_ptsBaseUs == Long.MIN_VALUE) {
+                        _ptsBaseUs = ptsUs
+                        _wallBaseNs = now
+                    }
+                    _wallBaseNs + (ptsUs - _ptsBaseUs) * 1000L
                 }
-                c.releaseOutputBuffer(idx, _wallBaseNs + (ptsUs - _ptsBaseUs) * 1000L)
+                if (releaseNs < now - LATE_DROP_NS) {
+                    // far behind the audio: showing it would keep video late, skip to catch up
+                    c.releaseOutputBuffer(idx, false)
+                    droppedFrames++
+                } else {
+                    c.releaseOutputBuffer(idx, releaseNs.coerceIn(now, now + MAX_AHEAD_NS))
+                }
             } else {
                 c.releaseOutputBuffer(idx, true)
             }
         }
+    }
+
+    /**
+     * Release time locked to the audio clock: the frame shows when audio with the same sender
+     * timestamp is heard. The offset is smoothed so per-callback jitter doesn't shake frame
+     * pacing, but jumps (new cushion, reconnect) are taken at once. null: no audio playing.
+     */
+    private fun _syncedReleaseNs(ptsUs: Long): Long? {
+        val offset = NativeBridge.nativeGetAvSyncOffsetNs(AV_OFFSET_MAX_AGE_NS)
+        if (offset == Long.MIN_VALUE || ptsUs <= 0) return null
+        val prev = _avOffsetNs
+        _avOffsetNs = if (prev == Long.MIN_VALUE || kotlin.math.abs(offset - prev) > AV_JUMP_NS) offset
+            else prev + (offset - prev) / AV_SMOOTHING
+        return ptsUs * 1000L + _avOffsetNs
     }
 
     fun release() = synchronized(lock) {
@@ -324,5 +353,15 @@ class VideoRenderer(ctx: Context) {
         private const val FEED_WAIT_US = 20_000L
         private const val FEED_RETRIES = 10
         private const val FIRST_FEED_RETRIES = 50
+        // keep the last audio-clock offset across silence (senders pause audio packets)
+        private const val AV_OFFSET_MAX_AGE_NS = 30_000_000_000L
+        // offset change treated as a new timeline (cushion re-primed, reconnect): adopt at once
+        private const val AV_JUMP_NS = 80_000_000L
+        // smaller drifts close 1/16 per frame (~0.3 s at 60 fps) so pacing stays even
+        private const val AV_SMOOTHING = 16L
+        // frames this late against the audio are dropped instead of shown
+        private const val LATE_DROP_NS = 150_000_000L
+        // MediaCodec renders timestamps up to ~1 s ahead reliably
+        private const val MAX_AHEAD_NS = 900_000_000L
     }
 }

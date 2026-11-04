@@ -23,6 +23,10 @@ object NativeBridge {
 
     external fun nativeSetDisplaySize(handle: Long, w: Int, h: Int, fps: Int)
     external fun nativeSetPlist(handle: Long, key: String, value: Int)
+
+    // mono-clock offset at which a sender pts becomes audible (audio output), or Long.MIN_VALUE
+    // when audio hasn't played within maxAgeNs: video releases frames at pts + offset
+    external fun nativeGetAvSyncOffsetNs(maxAgeNs: Long): Long
     external fun nativeSetH265Enabled(handle: Long, enabled: Boolean)
     external fun nativeSetCodecs(handle: Long, alac: Boolean, aac: Boolean)
     external fun nativeSetHlsEnabled(handle: Long, enabled: Boolean)

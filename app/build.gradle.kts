@@ -12,6 +12,8 @@ val localProps = Properties().apply {
 }
 
 val allAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+// Z7: XGIMI Z7X (MT9669) runs a 32-bit userspace — one ABI keeps CI builds short
+val z7Abis = listOf("armeabi-v7a")
 
 android {
     namespace = "io.github.jqssun.airplay"
@@ -30,11 +32,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.jqssun.airplay"
+        // Z7: own package next to upstream installs; code namespace stays io.github.jqssun.airplay
+        applicationId = "os.z7.airplay"
         minSdk = 23
         targetSdk = 37
-        versionCode = 36
-        versionName = "0.0.36"
+        versionCode = 3601
+        versionName = "0.0.36-z7.1"
 
         externalNativeBuild {
             cmake {
@@ -58,7 +61,7 @@ android {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("release")?.let { signingConfig = it }
-            ndk { abiFilters += allAbis }
+            ndk { abiFilters += z7Abis }
         }
         // debuggable build with HWASan (arm64) + UBSan in native code
         create("sanitize") {

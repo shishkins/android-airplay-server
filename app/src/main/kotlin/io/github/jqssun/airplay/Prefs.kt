@@ -72,7 +72,7 @@ object Prefs {
 
     fun forced(v: String) = when (v) { ON -> true; OFF -> false; else -> null }
 
-    val SERVER_NAME = str("server_name", "Android AirPlay", restart = true)
+    val SERVER_NAME = str("server_name", "XGIMI Projector", restart = true)
     val SERVER_PORT = int("server_port", 7000, 1..65535, restart = true)
     val AUTO_START = bool("auto_start", true)
     val BOOT_AUTO_START = bool("boot_auto_start", true)
@@ -83,7 +83,8 @@ object Prefs {
     val KEY_PRIORITY = bool(MediaFormat.KEY_PRIORITY, true, restart = true)
     val LOW_LATENCY = bool("low_latency", false)
     val OPERATING_RATE = tri("operating_rate", restart = true)
-    val SCHEDULED_OUTPUT_BUFFER_RELEASE = bool("scheduled_output_buffer_release", false, restart = true)
+    // Z7: on — frames are released on the audio clock (av_sync), the A/V lock depends on it
+    val SCHEDULED_OUTPUT_BUFFER_RELEASE = bool("scheduled_output_buffer_release", true, restart = true)
     val AUDIO_AUTO_BUFFER = bool("audio_auto_buffer", true)
     // fixed cushion ms, used only when AUDIO_AUTO_BUFFER is off
     val AUDIO_CUSHION_MS = int("audio_cushion_ms", 40, 1..1000)
