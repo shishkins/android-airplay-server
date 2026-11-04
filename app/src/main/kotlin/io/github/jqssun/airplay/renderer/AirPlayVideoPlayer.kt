@@ -42,20 +42,27 @@ class AirPlayVideoPlayer(private val context: Context) {
     private var _retriedWithH264 = false
     private var _audioChosen = false
     private var clientGain = 1f
+    private val mediaCookies = MediaHttp.SessionCookies()
     private val mediaHttp by lazy {
         OkHttpClient.Builder()
-            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS))
+            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.CLEARTEXT))
             .followSslRedirects(false)
+            .dns(MediaHttp.Ipv4FirstDns)
+            .cookieJar(mediaCookies)
             .build()
     }
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun mediaSourceFactory(location: String): DefaultMediaSourceFactory {
-        // One HTTP/2-capable stack for HTTPS media on every CDN host.
-        // Other sources retain the pre-existing platform path (including the local AirPlay relay).
-        if (!android.net.Uri.parse(location).scheme.equals("https", ignoreCase = true)) {
+        // One HTTP/2-capable stack for website media on every CDN host.
+        // The local AirPlay relay (YouTube app playlists over FCUP) keeps the platform path.
+        val uri = android.net.Uri.parse(location)
+        val web = uri.scheme.equals("https", ignoreCase = true) ||
+            (uri.scheme.equals("http", ignoreCase = true) && !MediaHttp.isLocal(uri.host))
+        if (!web) {
             return DefaultMediaSourceFactory(context)
         }
+        mediaCookies.clear()
         val http = OkHttpDataSource.Factory(mediaHttp)
             .setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
         return DefaultMediaSourceFactory(context)

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AirPlay video is fetched by the receiver itself, from any website the sender plays.
+  Android 9 boxes miss newer roots (e.g. GlobalSign Root CA - R6), so the current Mozilla
+  root store (curl.se/ca/cacert.pem, res/raw/mozilla_roots.pem) is trusted next to the system one.
+  Cleartext stays allowed: the local HLS relay and many media hosts are plain http.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/mozilla_roots" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
