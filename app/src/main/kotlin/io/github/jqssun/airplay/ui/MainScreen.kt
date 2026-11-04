@@ -309,6 +309,24 @@ fun MainScreen(
                     modifier = sizeModifier
                 )
             }
+            val subtitle by io.github.jqssun.airplay.renderer.AirPlayVideoPlayer.subtitles.collectAsState()
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    text = subtitle,
+                    color = Color.White,
+                    fontSize = androidx.compose.ui.unit.TextUnit(26f, androidx.compose.ui.unit.TextUnitType.Sp),
+                    lineHeight = androidx.compose.ui.unit.TextUnit(32f, androidx.compose.ui.unit.TextUnitType.Sp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    style = androidx.compose.ui.text.TextStyle(
+                        shadow = androidx.compose.ui.graphics.Shadow(Color.Black, blurRadius = 6f)
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 64.dp, end = 64.dp, bottom = 48.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                )
+            }
             VideoPlayerGestures(
                 enabled = videoPlaybackActive,
                 locked = controlsLocked,

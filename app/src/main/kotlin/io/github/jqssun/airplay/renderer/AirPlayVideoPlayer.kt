@@ -154,6 +154,12 @@ class AirPlayVideoPlayer(private val context: Context) {
             val p = player ?: return
             if (!_audioChosen) _audioChosen = OriginalAudio.choose(p, tracks)
         }
+        // the playback surface is a bare SurfaceView: subtitle text is drawn by the video screen
+        override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+            _subtitles.value = cueGroup.cues
+                .mapNotNull { it.text?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+                .joinToString("\n")
+        }
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
             onTitle?.invoke(mediaMetadata.title?.toString())
         }
@@ -251,6 +257,7 @@ class AirPlayVideoPlayer(private val context: Context) {
 
     private fun _stopInternal(reportStopped: Boolean) {
         mainHandler.removeCallbacks(_reportTick)
+        _subtitles.value = ""
         player?.let {
             it.removeListener(_listener)
             it.release()
@@ -287,6 +294,10 @@ class AirPlayVideoPlayer(private val context: Context) {
     }
 
     companion object {
+        private val _subtitles = kotlinx.coroutines.flow.MutableStateFlow("")
+        /** Current subtitle text of AirPlay video (empty = none); one player per process. */
+        val subtitles: kotlinx.coroutines.flow.StateFlow<String> = _subtitles
+
         private const val TAG = "AirPlayVideoPlayer"
         private const val REPORT_INTERVAL_MS = 250L
     }

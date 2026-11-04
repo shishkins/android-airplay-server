@@ -1,0 +1,45 @@
+diff --git a/lib/airplay_video.c b/lib/airplay_video.c
+index 3ca7b5a..9da5b96 100644
+--- a/lib/airplay_video.c
++++ b/lib/airplay_video.c
+@@ -20,6 +20,7 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <strings.h>
+ #include <stdbool.h>
+ #include <assert.h>
+ #include <pthread.h>
+@@ -470,9 +471,31 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
+     printf("\n");
+     assert(i_default >= 0);
+ 
+-    const char *ptrc = airplay_video->lang;;
++    /* Like an Apple TV: the track the sender selected (selectedMediaArray), else the original
++       audio (YouTube offers AI dubs named "<language> - dubbed-auto" next to "<language> - original").
++       The receiver's system language list only decides when neither is known; it used to come
++       first and turned every Russian video into the English dub on an English-language receiver. */
++    int i_sender = 0, i_original = 0;
++    for (int i = 1; i <= language_count; i++) {
++        if (language_name && !strcmp(language_name, languages[i].name)) {
++            i_sender = i;
++        }
++        for (const char *s = languages[i].name; !i_original && s && *s; s++) {
++            if (!strncasecmp(s, "original", strlen("original"))) {
++                i_original = i;
++            }
++        }
++    }
++    int i_choice = i_sender ? i_sender : i_original;
++
++    const char *ptrc = i_choice ? NULL : airplay_video->lang;
+     code = NULL;
+     name = NULL;
++    if (i_choice) {
++        code = languages[i_choice].code;
++        name = languages[i_choice].name;
++        printf("language choice: %s \"%s\" (%s)\n\n", code, name, i_sender ? "sender" : "original");
++    }
+     while (ptrc){
+         for (int i = 1; i <= language_count; i++) {
+             if (!strncmp(languages[i].code, ptrc, 2)) {

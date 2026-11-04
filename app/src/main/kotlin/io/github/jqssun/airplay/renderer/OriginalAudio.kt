@@ -36,6 +36,17 @@ internal object OriginalAudio {
     fun choose(player: ExoPlayer, tracks: Tracks): Boolean {
         if (tracks.groups.isEmpty()) return false
         val manifest = player.currentManifest as? HlsManifest ?: return true
+        for (s in manifest.multivariantPlaylist.subtitles) {
+            val f = s.format
+            Log.i(TAG, "subtitle rendition: name='${s.name}' lang=${f.language} " +
+                "default=${f.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0} " +
+                "autoselect=${f.selectionFlags and C.SELECTION_FLAG_AUTOSELECT != 0} " +
+                "forced=${f.selectionFlags and C.SELECTION_FLAG_FORCED != 0}")
+        }
+        if (manifest.multivariantPlaylist.subtitles.isNotEmpty()) {
+            val text = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
+            Log.i(TAG, "subtitles: selected=${text?.getTrackFormat(0)?.label}")
+        }
         val audios = manifest.multivariantPlaylist.audios
         if (audios.size < 2) return true
         for (a in audios) {
