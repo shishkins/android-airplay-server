@@ -40,6 +40,7 @@ class AirPlayVideoPlayer(private val context: Context) {
     private var player: ExoPlayer? = null
     private var pendingSurface: Surface? = null
     private var _retriedWithH264 = false
+    private var _audioChosen = false
     private var clientGain = 1f
     private val mediaHttp by lazy {
         OkHttpClient.Builder()
@@ -59,6 +60,19 @@ class AirPlayVideoPlayer(private val context: Context) {
             .setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
         return DefaultMediaSourceFactory(context)
             .setDataSourceFactory(DefaultDataSource.Factory(context, http))
+    }
+
+    // ExoPlayer infers HLS from a path ending in .m3u8; website players often hide it in the query
+    // (".../playlist?format=m3u8") and would otherwise be probed as a progressive file and fail.
+    private fun mediaItem(location: String): MediaItem {
+        val uri = android.net.Uri.parse(location)
+        val path = uri.path.orEmpty().lowercase(Locale.ROOT)
+        val hlsHint = !path.endsWith(".m3u8") && location.contains("m3u8", ignoreCase = true)
+        Log.i(TAG, "play: scheme=${uri.scheme} host=${uri.host} ext=${path.substringAfterLast('.', "")}" +
+            (if (hlsHint) " (hls hint)" else ""))
+        val builder = MediaItem.Builder().setUri(uri)
+        if (hlsHint) builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+        return builder.build()
     }
 
     private fun tokenTimeState(uri: android.net.Uri?): String {
@@ -128,6 +142,11 @@ class AirPlayVideoPlayer(private val context: Context) {
             // duration is usually established here (esp. hls): report so the held /play releases
             _reportPlaybackInfo()
         }
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            val p = player ?: return
+            if (!_audioChosen) _audioChosen = OriginalAudio.choose(p, tracks)
+        }
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
             onTitle?.invoke(mediaMetadata.title?.toString())
         }
@@ -142,6 +161,7 @@ class AirPlayVideoPlayer(private val context: Context) {
         // recycling must not report the stopped sentinel: senders poll right after /play
         _stopInternal(reportStopped = false)
         _retriedWithH264 = false
+        _audioChosen = false
         // Decoder fallback: if the preferred decoder fails to start, try the next one for the format.
         @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
         val renderers = androidx.media3.exoplayer.DefaultRenderersFactory(context).setEnableDecoderFallback(true)
@@ -151,7 +171,7 @@ class AirPlayVideoPlayer(private val context: Context) {
             it.volume = clientGain
         }
         player = p
-        p.setMediaItem(MediaItem.fromUri(location), (startPositionSeconds * 1000).toLong())
+        p.setMediaItem(mediaItem(location), (startPositionSeconds * 1000).toLong())
         p.playWhenReady = true
         p.prepare()
         onPlaybackInfo?.invoke(PlaybackSnapshot(startPositionSeconds, 0f, 0f, false, true))
