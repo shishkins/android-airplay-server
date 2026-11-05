@@ -48,7 +48,6 @@ internal object OriginalAudio {
             Log.i(TAG, "subtitles: selected=${text?.getTrackFormat(0)?.label}")
         }
         val audios = manifest.multivariantPlaylist.audios
-        if (audios.size < 2) return true
         for (a in audios) {
             val f = a.format
             Log.i(TAG, "audio rendition: name='${a.name}' lang=${f.language} group=${a.groupId} " +
@@ -56,6 +55,10 @@ internal object OriginalAudio {
                 "autoselect=${f.selectionFlags and C.SELECTION_FLAG_AUTOSELECT != 0} " +
                 "roles=${f.roleFlags} acont=${acont(a.url)}")
         }
+        // One language left (UxPlay already filtered a YouTube master playlist down to the sender's
+        // choice; the same rendition then sits in several bitrate groups): nothing to decide, and
+        // forcing an override over those groups stalled YouTube playback.
+        if (audios.distinctBy { it.name }.size < 2) return true
         val original = pick(audios)
         if (original == null) {
             Log.i(TAG, "audio: no original marker, keeping '${selectedLabel(tracks)}'")
