@@ -36,8 +36,8 @@ android {
         applicationId = "os.z7.airplay"
         minSdk = 23
         targetSdk = 37
-        versionCode = 3605
-        versionName = "0.0.36-z7.5"
+        versionCode = 3606
+        versionName = "0.0.36-z7.6"
 
         externalNativeBuild {
             cmake {

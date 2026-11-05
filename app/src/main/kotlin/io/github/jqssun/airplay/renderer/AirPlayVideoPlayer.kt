@@ -49,6 +49,7 @@ class AirPlayVideoPlayer(private val context: Context) {
             .followSslRedirects(false)
             .dns(MediaHttp.Ipv4FirstDns)
             .cookieJar(mediaCookies)
+            .addInterceptor(MediaHttp.SiteReferer)
             .build()
     }
 
@@ -76,7 +77,8 @@ class AirPlayVideoPlayer(private val context: Context) {
         val path = uri.path.orEmpty().lowercase(Locale.ROOT)
         val hlsHint = !path.endsWith(".m3u8") && location.contains("m3u8", ignoreCase = true)
         Log.i(TAG, "play: scheme=${uri.scheme} host=${uri.host} ext=${path.substringAfterLast('.', "")}" +
-            (if (hlsHint) " (hls hint)" else ""))
+            (if (hlsHint) " (hls hint)" else "") +
+            (if (uri.host?.let { MediaHttp.SiteReferer.refererFor(it) } != null) " (site referer)" else ""))
         val builder = MediaItem.Builder().setUri(uri)
         if (hlsHint) builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
         return builder.build()

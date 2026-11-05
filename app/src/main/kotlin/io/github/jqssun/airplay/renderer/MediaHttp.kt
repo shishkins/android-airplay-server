@@ -4,6 +4,8 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.Dns
 import okhttp3.HttpUrl
+import okhttp3.Interceptor
+import okhttp3.Response
 import java.net.Inet4Address
 import java.net.InetAddress
 
@@ -46,6 +48,50 @@ internal object MediaHttp {
 
         @Synchronized
         fun clear() = cookies.clear()
+    }
+
+    /**
+     * Hotlink-protected CDNs serve playlists to anyone but media segments only with the site's
+     * page as Referer (HTTP 404 without it, 200 with it). AirPlay does not tell the receiver which
+     * page the video came from, so the site is inferred from the CDN host. The rules live on the
+     * device, not in the source: `persist.z7.referer` = "cdn.example=https://site.example/;...".
+     */
+    object SiteReferer : Interceptor {
+        private const val PROP = "persist.z7.referer"
+
+        @Volatile private var cached: Pair<String, List<Pair<String, String>>>? = null
+
+        private fun rules(): List<Pair<String, String>> {
+            val raw = systemProperty(PROP)
+            cached?.let { if (it.first == raw) return it.second }
+            val parsed = raw.split(';').mapNotNull { rule ->
+                val i = rule.indexOf('=')
+                if (i <= 0) null else rule.substring(0, i).trim().trimStart('.').lowercase() to rule.substring(i + 1).trim()
+            }.filter { it.first.isNotEmpty() && it.second.startsWith("http") }
+            cached = raw to parsed
+            return parsed
+        }
+
+        fun refererFor(host: String): String? {
+            val h = host.lowercase()
+            return rules().firstOrNull { (suffix, _) -> h == suffix || h.endsWith(".$suffix") }?.second
+        }
+
+        @android.annotation.SuppressLint("PrivateApi")
+        private fun systemProperty(name: String): String = try {
+            Class.forName("android.os.SystemProperties")
+                .getMethod("get", String::class.java, String::class.java)
+                .invoke(null, name, "") as String
+        } catch (_: Exception) {
+            ""
+        }
+
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val request = chain.request()
+            if (request.header("Referer") != null) return chain.proceed(request)
+            val referer = refererFor(request.url.host) ?: return chain.proceed(request)
+            return chain.proceed(request.newBuilder().header("Referer", referer).build())
+        }
     }
 
     fun isLocal(host: String?): Boolean =
